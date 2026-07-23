@@ -3,4 +3,3 @@ pandas
 openpyxl
 sqlalchemy
 psycopg2-binary
-extra-streamlit-components

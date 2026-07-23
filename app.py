@@ -5,7 +5,6 @@ import datetime
 import re
 import time
 import streamlit.components.v1 as components
-import extra_streamlit_components as stx
 
 # ==========================================
 # 🔑 Supabase 雲端資料庫連線設定
@@ -72,57 +71,49 @@ def send_notification(target_user, message):
         )
 
 # ========================================================
-# 🍪 Cookie 免重登控制核心 (修復 Key 衝突)
+# 🔑 原生網址記憶登入系統 (免套件、重整免重登、無殘影)
 # ========================================================
-cookie_manager = stx.CookieManager()
-
 if 'logged_in' not in st.session_state: st.session_state.logged_in = False
 if 'user_name' not in st.session_state: st.session_state.user_name = ""
 if 'user_id' not in st.session_state: st.session_state.user_id = ""
 
-# 若 Session 未登入，試圖從 Cookie 復原
+# 檢查網址列是否有登入憑證 (F5 重整時自動恢復登入)
 if not st.session_state.logged_in:
-    c_user_id = cookie_manager.get(cookie="tss_user_id")
-    c_user_name = cookie_manager.get(cookie="tss_user_name")
+    url_user_id = st.query_params.get("u", "")
+    if url_user_id:
+        users_df = get_user_credentials_cached()
+        user_match = users_df[users_df['emp_id'].str.upper() == url_user_id.upper()]
+        if not user_match.empty:
+            st.session_state.logged_in = True
+            st.session_state.user_id = url_user_id.upper()
+            st.session_state.user_name = user_match.iloc[0]['real_name']
 
-    if c_user_id and c_user_name:
-        st.session_state.logged_in = True
-        st.session_state.user_id = c_user_id
-        st.session_state.user_name = c_user_name
-        st.rerun()
-
-login_box = st.empty()
-
+# 若未登入，只渲染登入頁面並徹底停止後續執行 (消滅所有殘影)
 if not st.session_state.logged_in:
-    with login_box.container():
-        st.markdown("### 🔐 歡迎使用，請輸入帳號密碼登入")
-        col_l1, col_l2 = st.columns(2)
-        with col_l1: 
-            input_emp_id = st.text_input("👤 請輸入您的員工編號（帳號）：", placeholder="例如: T001 或 ADMIN").strip()
-        with col_l2: 
-            input_pwd = st.text_input("🔑 請輸入密碼：", type="password", placeholder="請輸入您的密碼")
-        
-        if st.button("🔓 驗證登入", type="primary"):
-            if not input_emp_id or not input_pwd: 
-                st.error("❌ 帳號與密碼皆不能為空白！")
-            else:
-                users_df = get_user_credentials_cached()
-                user_match = users_df[users_df['emp_id'].str.upper() == input_emp_id.upper()]
-                if not user_match.empty and str(user_match.iloc[0]['password']) == str(input_pwd):
-                    st.session_state.logged_in = True
-                    st.session_state.user_id = input_emp_id.upper()
-                    st.session_state.user_name = user_match.iloc[0]['real_name']
-                    
-                    # 🍪 寫入 Cookie (明確指定不同 key 避免 Key 衝突)
-                    expires_at = datetime.datetime.now() + datetime.timedelta(seconds=1800)
-                    cookie_manager.set("tss_user_id", input_emp_id.upper(), expires_at=expires_at, key="set_ck_id")
-                    cookie_manager.set("tss_user_name", user_match.iloc[0]['real_name'], expires_at=expires_at, key="set_ck_name")
-                    
-                    login_box.empty()
-                    st.rerun()
-                else: 
-                    st.error("❌ 登入失敗：員工編號或密碼錯誤。")
-    st.stop()
+    st.markdown("### 🔐 歡迎使用，請輸入帳號密碼登入")
+    col_l1, col_l2 = st.columns(2)
+    with col_l1: 
+        input_emp_id = st.text_input("👤 請輸入您的員工編號（帳號）：", placeholder="例如: T001 或 ADMIN").strip()
+    with col_l2: 
+        input_pwd = st.text_input("🔑 請輸入密碼：", type="password", placeholder="請輸入您的密碼")
+    
+    if st.button("🔓 驗證登入", type="primary"):
+        if not input_emp_id or not input_pwd: 
+            st.error("❌ 帳號與密碼皆不能為空白！")
+        else:
+            users_df = get_user_credentials_cached()
+            user_match = users_df[users_df['emp_id'].str.upper() == input_emp_id.upper()]
+            if not user_match.empty and str(user_match.iloc[0]['password']) == str(input_pwd):
+                st.session_state.logged_in = True
+                st.session_state.user_id = input_emp_id.upper()
+                st.session_state.user_name = user_match.iloc[0]['real_name']
+                
+                # 寫入網址參數，確保 F5 重整免重新登入
+                st.query_params["u"] = input_emp_id.upper()
+                st.rerun()
+            else: 
+                st.error("❌ 登入失敗：員工編號或密碼錯誤。")
+    st.stop()  # 強制中斷，確保絕不會跟主系統畫面疊加
 
 # ========================================================
 # 📅 核心邏輯區
@@ -201,8 +192,7 @@ with st.sidebar.expander(f"🔔通知 ({unread_count})", expanded=(unread_count 
 st.sidebar.markdown("---")
 if st.sidebar.button("🚪 登出系統", use_container_width=True):
     st.session_state.logged_in, st.session_state.user_id, st.session_state.user_name = False, "", ""
-    cookie_manager.delete("tss_user_id", key="del_ck_id")
-    cookie_manager.delete("tss_user_name", key="del_ck_name")
+    st.query_params.clear()  # 清空網址憑證
     st.rerun()
 
 st.sidebar.markdown("---")
