@@ -7,7 +7,7 @@ import time
 import streamlit.components.v1 as components
 
 # ==========================================
-# 🔑 Supabase 雲端資料庫連線設定 (高效連線池)
+# 🔑 Supabase 雲端資料庫連線設定
 # ==========================================
 DATABASE_URL = "postgresql://postgres.vccvzbtgzkiyvoowxjlq:Tsshs-011329@aws-0-ap-northeast-1.pooler.supabase.com:6543/postgres"
 
@@ -16,28 +16,20 @@ if DATABASE_URL.startswith("postgresql://"):
 
 @st.cache_resource
 def get_db_engine():
-    return create_engine(
-        DATABASE_URL, 
-        pool_size=10, 
-        max_overflow=20, 
-        pool_recycle=300, 
-        pool_pre_ping=True
-    )
+    return create_engine(DATABASE_URL, pool_pre_ping=True)
 
 engine = get_db_engine()
 
 def run_query(query, params=None):
-    """讀取資料 (SELECT)"""
     with engine.connect() as conn:
         return pd.read_sql(text(query), conn, params=params)
 
 def run_action(query, params=None):
-    """寫入/修改/刪除資料 (INSERT / UPDATE / DELETE)"""
     with engine.begin() as conn:
         conn.execute(text(query), params or {})
 
 # ========================================================
-# ⚡ 全局記憶體快取 (讓下拉選單與基礎課表秒開)
+# ⚡ 記憶體極速快取 (全頁 0.1 秒回應核心)
 # ========================================================
 def to_arabic_class(name):
     if not name: return ""
@@ -45,16 +37,17 @@ def to_arabic_class(name):
     match = re.search(r'([一二三四五六])年(\d+)班', name)
     return f"{num_map[match.group(1)]}{int(match.group(2)):02d}" if match else name
 
-@st.cache_data(ttl=3600)
-def get_static_school_data():
-    classes_df = run_query("SELECT DISTINCT class_name FROM base_schedule WHERE class_name IS NOT NULL")
-    teachers_df = run_query("SELECT DISTINCT teacher_name FROM base_schedule WHERE teacher_name IS NOT NULL")
-    
-    classes = sorted(classes_df['class_name'].tolist(), key=to_arabic_class) if not classes_df.empty else []
-    teachers = sorted(teachers_df['teacher_name'].tolist()) if not teachers_df.empty else []
-    return classes, teachers
+@st.cache_data(ttl=600)
+def get_base_schedule_cached():
+    return run_query("SELECT * FROM base_schedule")
 
-all_classes, all_teachers_in_db = get_static_school_data()
+@st.cache_data(ttl=600)
+def get_user_credentials_cached():
+    return run_query("SELECT emp_id, password, real_name, role FROM user_credentials")
+
+base_schedule_df = get_base_schedule_cached()
+all_classes = sorted(list(set(base_schedule_df['class_name'].dropna().tolist())), key=to_arabic_class)
+all_teachers_in_db = sorted(list(set(base_schedule_df['teacher_name'].dropna().tolist())))
 
 # ========================================================
 # 網頁基本設定與樣式
@@ -99,14 +92,12 @@ if not st.session_state.logged_in:
             if not input_emp_id or not input_pwd: 
                 st.error("❌ 帳號與密碼皆不能為空白！")
             else:
-                user_df = run_query(
-                    "SELECT real_name, password FROM user_credentials WHERE UPPER(emp_id) = :eid",
-                    {"eid": input_emp_id.upper()}
-                )
-                if not user_df.empty and str(user_df.iloc[0]['password']) == str(input_pwd):
+                users_df = get_user_credentials_cached()
+                user_match = users_df[users_df['emp_id'].str.upper() == input_emp_id.upper()]
+                if not user_match.empty and str(user_match.iloc[0]['password']) == str(input_pwd):
                     st.session_state.logged_in = True
                     st.session_state.user_id = input_emp_id.upper()
-                    st.session_state.user_name = user_df.iloc[0]['real_name']
+                    st.session_state.user_name = user_match.iloc[0]['real_name']
                     login_box.empty()
                     st.rerun()
                 else: 
@@ -133,18 +124,20 @@ def get_consecutive_block(teacher_name, date_val, new_period_str):
     date_obj = datetime.datetime.strptime(date_str, '%Y-%m-%d').date() if isinstance(date_val, str) else date_val
     week_day_zh = get_week_day_zh(date_obj)
     
-    # ⚡ 合併成單一次 SQL 查詢，大降網路開銷
-    combined_df = run_query("""
-        SELECT period, 'base' as src FROM base_schedule WHERE teacher_name=:t AND week_day=:w
-        UNION ALL
-        SELECT period, 'out' as src FROM temp_swaps WHERE swap_date=:d AND original_teacher=:t AND status IN ('approved', 'approved_sub', 'pending_admin')
-        UNION ALL
-        SELECT period, 'in' as src FROM temp_swaps WHERE swap_date=:d AND new_teacher=:t AND status IN ('approved', 'approved_sub', 'pending_admin')
-    """, {"t": teacher_name, "w": week_day_zh, "d": date_str})
+    base_df = base_schedule_df[(base_schedule_df['teacher_name'] == teacher_name) & (base_schedule_df['week_day'] == week_day_zh)]
+    base_periods = set(base_df['period'].astype(int).tolist()) if not base_df.empty else set()
     
-    base_periods = set(combined_df[combined_df['src'] == 'base']['period'].astype(int).tolist()) if not combined_df.empty else set()
-    out_set = set(combined_df[combined_df['src'] == 'out']['period'].astype(int).tolist()) if not combined_df.empty else set()
-    in_set = set(combined_df[combined_df['src'] == 'in']['period'].astype(int).tolist()) if not combined_df.empty else set()
+    swapped_out = run_query(
+        "SELECT period FROM temp_swaps WHERE swap_date=:d AND original_teacher=:t AND status IN ('approved', 'approved_sub', 'pending_admin')",
+        {"d": date_str, "t": teacher_name}
+    )
+    swapped_in = run_query(
+        "SELECT period FROM temp_swaps WHERE swap_date=:d AND new_teacher=:t AND status IN ('approved', 'approved_sub', 'pending_admin')",
+        {"d": date_str, "t": teacher_name}
+    )
+    
+    out_set = set(swapped_out['period'].astype(int).tolist()) if not swapped_out.empty else set()
+    in_set = set(swapped_in['period'].astype(int).tolist()) if not swapped_in.empty else set()
     
     final_periods = (base_periods - out_set) | in_set
     new_p = int(new_period_str)
@@ -220,7 +213,7 @@ def load_merged_timetable(target_date, filter_value, filter_type="teacher"):
     end_of_week = start_of_week + datetime.timedelta(days=6)
     
     field = "teacher_name" if filter_type == "teacher" else "class_name"
-    df_base = run_query(f"SELECT period, week_day, subject, class_name, teacher_name FROM base_schedule WHERE {field} = :val", {"val": filter_value})
+    df_base = base_schedule_df[base_schedule_df[field] == filter_value]
     
     df_swaps = run_query(
         "SELECT period, week_day, original_teacher, new_teacher, original_subject, new_subject, class_name, status FROM temp_swaps WHERE swap_date BETWEEN :s AND :e AND status IN ('approved', 'approved_sub')",
@@ -514,10 +507,7 @@ with tabs[2]:
             col_ad1, col_ad2 = st.columns(2)
             with col_ad1: absent_teacher = st.selectbox("1. 選擇【請假/公差】的缺席老師：", all_teachers_in_db, key="abs_tea_box")
             if absent_teacher:
-                abs_lessons = run_query(
-                    "SELECT class_name, week_day, period, subject FROM base_schedule WHERE teacher_name=:t AND week_day=:w",
-                    {"t": absent_teacher, "w": current_weekday}
-                )
+                abs_lessons = base_schedule_df[(base_schedule_df['teacher_name'] == absent_teacher) & (base_schedule_df['week_day'] == current_weekday)]
                 locked_df = run_query(
                     "SELECT period FROM temp_swaps WHERE swap_date=:d AND original_teacher=:t AND status NOT IN ('rejected', 'rejected_admin')",
                     {"d": selected_date.strftime('%Y-%m-%d'), "t": absent_teacher}
@@ -525,6 +515,7 @@ with tabs[2]:
                 locked_abs_lessons = locked_df['period'].astype(str).tolist() if not locked_df.empty else []
                 
                 if not abs_lessons.empty:
+                    abs_lessons = abs_lessons.copy()
                     abs_lessons['period'] = abs_lessons['period'].astype(str)
                     abs_lessons = sort_lessons_dataframe(abs_lessons[~abs_lessons['period'].isin(locked_abs_lessons)])
                 
@@ -534,12 +525,12 @@ with tabs[2]:
                         abs_options = [f"第{r['period']}節 ｜ {to_arabic_class(r['class_name'])} - {r['subject']}" for _, r in abs_lessons.iterrows()]
                         chosen_abs_les = abs_lessons.iloc[st.selectbox("2. 選擇需要找人代上的課堂：", range(len(abs_options)), format_func=lambda x: abs_options[x])]
                     with col_ad2:
-                        b1 = run_query("SELECT DISTINCT teacher_name FROM base_schedule WHERE week_day=:w AND period=:p", {"w": current_weekday, "p": str(chosen_abs_les['period'])})
+                        b1 = base_schedule_df[(base_schedule_df['week_day'] == current_weekday) & (base_schedule_df['period'].astype(str) == str(chosen_abs_les['period']))]['teacher_name'].tolist()
                         f1 = run_query("SELECT DISTINCT original_teacher FROM temp_swaps WHERE swap_date=:d AND period=:p AND status IN ('approved', 'approved_sub', 'pending_admin') AND original_teacher IS NOT NULL", {"d": selected_date.strftime('%Y-%m-%d'), "p": str(chosen_abs_les['period'])})
                         b2 = run_query("SELECT DISTINCT new_teacher FROM temp_swaps WHERE swap_date=:d AND period=:p AND status NOT IN ('rejected', 'rejected_admin') AND new_teacher IS NOT NULL", {"d": selected_date.strftime('%Y-%m-%d'), "p": str(chosen_abs_les['period'])})
                         l1 = run_query("SELECT DISTINCT teacher_name FROM locked_slots WHERE lock_date=:d AND period=:p", {"d": selected_date.strftime('%Y-%m-%d'), "p": str(chosen_abs_les['period'])})
                         
-                        busy_base = b1['teacher_name'].tolist() if not b1.empty else []
+                        busy_base = b1
                         freed_teachers = f1['original_teacher'].tolist() if not f1.empty else []
                         busy_swap = b2['new_teacher'].tolist() if not b2.empty else []
                         admin_locked_teachers = l1['teacher_name'].tolist() if not l1.empty else []
@@ -580,10 +571,7 @@ with tabs[2]:
             if not is_admin_mode: st.info(f"📅 目前鎖定操作日期：**{selected_date} (星期{current_weekday})**")
 
             if initiator:
-                my_base_lessons = run_query(
-                    "SELECT class_name, week_day, period, subject FROM base_schedule WHERE teacher_name = :t AND week_day = :w",
-                    {"t": initiator, "w": current_weekday}
-                )
+                my_base_lessons = base_schedule_df[(base_schedule_df['teacher_name'] == initiator) & (base_schedule_df['week_day'] == current_weekday)]
                 locked_my = run_query(
                     "SELECT period FROM temp_swaps WHERE swap_date=:d AND original_teacher=:t AND status NOT IN ('rejected', 'rejected_admin')",
                     {"d": selected_date.strftime('%Y-%m-%d'), "t": initiator}
@@ -591,6 +579,7 @@ with tabs[2]:
                 locked_my_lessons = locked_my['period'].astype(str).tolist() if not locked_my.empty else []
                 
                 if not my_base_lessons.empty:
+                    my_base_lessons = my_base_lessons.copy()
                     my_base_lessons['period'] = my_base_lessons['period'].astype(str)
                     my_base_lessons = sort_lessons_dataframe(my_base_lessons[~my_base_lessons['period'].isin(locked_my_lessons)])
                 
@@ -600,17 +589,14 @@ with tabs[2]:
                     target_lesson = my_base_lessons.iloc[st.selectbox("1. 選擇移開的課堂：", range(len(lesson_options)), format_func=lambda x: lesson_options[x])]
                     cls_name, w_day_1, per_1 = target_lesson['class_name'], target_lesson['week_day'], target_lesson['period']
                     
-                    potential_partners = sort_lessons_dataframe(run_query(
-                        "SELECT teacher_name, week_day, period, subject FROM base_schedule WHERE class_name = :c AND teacher_name != :t",
-                        {"c": cls_name, "t": initiator}
-                    ))
+                    potential_partners = sort_lessons_dataframe(base_schedule_df[(base_schedule_df['class_name'] == cls_name) & (base_schedule_df['teacher_name'] != initiator)])
                     
                     valid_swaps = []
                     if not potential_partners.empty:
                         for _, partner in potential_partners.iterrows():
                             t_b, w_day_2, per_2 = partner['teacher_name'], partner['week_day'], partner['period']
-                            check1 = run_query("SELECT 1 FROM base_schedule WHERE teacher_name=:t AND week_day=:w AND period=:p", {"t": t_b, "w": w_day_1, "p": str(per_1)})
-                            check2 = run_query("SELECT 1 FROM base_schedule WHERE teacher_name=:t AND week_day=:w AND period=:p", {"t": initiator, "w": w_day_2, "p": str(per_2)})
+                            check1 = base_schedule_df[(base_schedule_df['teacher_name'] == t_b) & (base_schedule_df['week_day'] == w_day_1) & (base_schedule_df['period'].astype(str) == str(per_1))]
+                            check2 = base_schedule_df[(base_schedule_df['teacher_name'] == initiator) & (base_schedule_df['week_day'] == w_day_2) & (base_schedule_df['period'].astype(str) == str(per_2))]
                             if check1.empty and check2.empty:
                                 valid_swaps.append(partner)
                     st.markdown("---")
@@ -755,7 +741,11 @@ def render_admin_cards(df, is_pending_approval=False):
                     if st.button("🖨️ 列印表單", key=f"prt_{gid}", type="primary", use_container_width=True):
                         print_single_dialog(gid)
                     if st.button("🗑️ 強制撤銷", key=f"del_{gid}", use_container_width=True):
-                        force_cancel_dialog(gid, info_for_del, row['申請老師'], "", row['對調老師'], "")
+                        force_cancel_dialog(gid, info_for_del, row['申請老師'], f"👑 教務處已強制撤銷您發起的調課申請 ({row['申請方日期']} 第{row['申請方節次']}節)", row['對調老師'], f"👑 教務處已強制撤銷與您相關的調課邀請")
+                elif raw_status == 'pending':
+                    # 💡 針對「等待對方回覆」新增教務處強制撤銷按鈕
+                    if st.button("🗑️ 強制撤銷", key=f"del_{gid}", use_container_width=True):
+                        force_cancel_dialog(gid, info_for_del, row['申請老師'], f"👑 教務處已強制撤銷您發起的調課申請 ({row['申請方日期']} 第{row['申請方節次']}節)", row['對調老師'], f"👑 教務處已強制撤銷與您相關的調課邀請")
 
 if st.session_state.user_id == "ADMIN":
     with tabs[3]:
@@ -1075,7 +1065,8 @@ if st.session_state.user_id == "ADMIN":
         st.markdown("### ⚙️ 全校教職員帳號管理")
         st.caption("此處列出系統自動建立的全校帳號。您可以先下載清單，於 Excel 中修改「密碼(password)」後，再將檔案上傳回來覆蓋更新。")
         
-        users_df = run_query("SELECT emp_id, password, real_name, role FROM user_credentials WHERE role != 'admin' ORDER BY emp_id")
+        users_df = get_user_credentials_cached()
+        users_df = users_df[users_df['role'] != 'admin'].sort_values('emp_id')
         st.dataframe(users_df, use_container_width=True)
         
         col_dl, col_ul = st.columns(2)
@@ -1092,6 +1083,7 @@ if st.session_state.user_id == "ADMIN":
                     else:
                         run_action("DELETE FROM user_credentials WHERE role != 'admin'")
                         new_df.to_sql('user_credentials', engine, if_exists='append', index=False)
+                        st.cache_data.clear()
                         st.success("✅ 帳號資料已成功整批更新！請重新整理頁面。")
                         st.rerun()
                 except Exception as e: st.error(f"上傳發生錯誤：{e}")
