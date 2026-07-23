@@ -72,13 +72,9 @@ def send_notification(target_user, message):
         )
 
 # ========================================================
-# 🍪 修復版 Cookie 免重登控制核心
+# 🍪 Cookie 免重登控制核心 (修復快取警告)
 # ========================================================
-@st.cache_resource
-def get_cookie_manager():
-    return stx.CookieManager()
-
-cookie_manager = get_cookie_manager()
+cookie_manager = stx.CookieManager(key="tss_cookie_mgr")
 
 if 'logged_in' not in st.session_state: st.session_state.logged_in = False
 if 'user_name' not in st.session_state: st.session_state.user_name = ""
