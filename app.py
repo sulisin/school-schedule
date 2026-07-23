@@ -5,6 +5,7 @@ import datetime
 import re
 import time
 import streamlit.components.v1 as components
+import extra_streamlit_components as stx
 
 # ==========================================
 # 🔑 Supabase 雲端資料庫連線設定
@@ -29,7 +30,7 @@ def run_action(query, params=None):
         conn.execute(text(query), params or {})
 
 # ========================================================
-# ⚡ 記憶體極速快取 (全頁 0.1 秒回應核心)
+# ⚡ 記憶體極速快取
 # ========================================================
 def to_arabic_class(name):
     if not name: return ""
@@ -71,11 +72,22 @@ def send_notification(target_user, message):
         )
 
 # ========================================================
-# 🔐 安全憑證控制系統
+# 🍪 Cookie 跨頁面與重整記憶體 (保持登入 30 分鐘)
 # ========================================================
+cookie_manager = stx.CookieManager()
+
 if 'logged_in' not in st.session_state: st.session_state.logged_in = False
 if 'user_name' not in st.session_state: st.session_state.user_name = ""
 if 'user_id' not in st.session_state: st.session_state.user_id = ""
+
+# 檢查 Cookie 中是否有儲存的登入狀態
+c_user_id = cookie_manager.get(cookie="tss_user_id")
+c_user_name = cookie_manager.get(cookie="tss_user_name")
+
+if c_user_id and c_user_name and not st.session_state.logged_in:
+    st.session_state.logged_in = True
+    st.session_state.user_id = c_user_id
+    st.session_state.user_name = c_user_name
 
 login_box = st.empty()
 
@@ -98,6 +110,12 @@ if not st.session_state.logged_in:
                     st.session_state.logged_in = True
                     st.session_state.user_id = input_emp_id.upper()
                     st.session_state.user_name = user_match.iloc[0]['real_name']
+                    
+                    # 🍪 寫入 Cookie (設定 1800 秒 = 30 分鐘有效)
+                    expires_at = datetime.datetime.now() + datetime.timedelta(seconds=1800)
+                    cookie_manager.set("tss_user_id", input_emp_id.upper(), expires_at=expires_at)
+                    cookie_manager.set("tss_user_name", user_match.iloc[0]['real_name'], expires_at=expires_at)
+                    
                     login_box.empty()
                     st.rerun()
                 else: 
@@ -181,6 +199,9 @@ with st.sidebar.expander(f"🔔通知 ({unread_count})", expanded=(unread_count 
 st.sidebar.markdown("---")
 if st.sidebar.button("🚪 登出系統", use_container_width=True):
     st.session_state.logged_in, st.session_state.user_id, st.session_state.user_name = False, "", ""
+    # 🍪 清除 Cookie
+    cookie_manager.delete("tss_user_id")
+    cookie_manager.delete("tss_user_name")
     st.rerun()
 
 st.sidebar.markdown("---")
@@ -743,7 +764,6 @@ def render_admin_cards(df, is_pending_approval=False):
                     if st.button("🗑️ 強制撤銷", key=f"del_{gid}", use_container_width=True):
                         force_cancel_dialog(gid, info_for_del, row['申請老師'], f"👑 教務處已強制撤銷您發起的調課申請 ({row['申請方日期']} 第{row['申請方節次']}節)", row['對調老師'], f"👑 教務處已強制撤銷與您相關的調課邀請")
                 elif raw_status == 'pending':
-                    # 💡 針對「等待對方回覆」新增教務處強制撤銷按鈕
                     if st.button("🗑️ 強制撤銷", key=f"del_{gid}", use_container_width=True):
                         force_cancel_dialog(gid, info_for_del, row['申請老師'], f"👑 教務處已強制撤銷您發起的調課申請 ({row['申請方日期']} 第{row['申請方節次']}節)", row['對調老師'], f"👑 教務處已強制撤銷與您相關的調課邀請")
 
