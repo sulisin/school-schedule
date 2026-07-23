@@ -72,9 +72,9 @@ def send_notification(target_user, message):
         )
 
 # ========================================================
-# 🍪 Cookie 免重登控制核心 (修復快取警告)
+# 🍪 Cookie 免重登控制核心 (修復 Key 衝突)
 # ========================================================
-cookie_manager = stx.CookieManager(key="tss_cookie_mgr")
+cookie_manager = stx.CookieManager()
 
 if 'logged_in' not in st.session_state: st.session_state.logged_in = False
 if 'user_name' not in st.session_state: st.session_state.user_name = ""
@@ -84,12 +84,6 @@ if 'user_id' not in st.session_state: st.session_state.user_id = ""
 if not st.session_state.logged_in:
     c_user_id = cookie_manager.get(cookie="tss_user_id")
     c_user_name = cookie_manager.get(cookie="tss_user_name")
-    
-    # 解決網頁剛初始化時的通訊時間差
-    if c_user_id is None and 'cookie_checked' not in st.session_state:
-        st.session_state.cookie_checked = True
-        time.sleep(0.2)
-        st.rerun()
 
     if c_user_id and c_user_name:
         st.session_state.logged_in = True
@@ -119,10 +113,10 @@ if not st.session_state.logged_in:
                     st.session_state.user_id = input_emp_id.upper()
                     st.session_state.user_name = user_match.iloc[0]['real_name']
                     
-                    # 🍪 寫入 Cookie (設定 1800 秒 = 30 分鐘有效)
+                    # 🍪 寫入 Cookie (明確指定不同 key 避免 Key 衝突)
                     expires_at = datetime.datetime.now() + datetime.timedelta(seconds=1800)
-                    cookie_manager.set("tss_user_id", input_emp_id.upper(), expires_at=expires_at)
-                    cookie_manager.set("tss_user_name", user_match.iloc[0]['real_name'], expires_at=expires_at)
+                    cookie_manager.set("tss_user_id", input_emp_id.upper(), expires_at=expires_at, key="set_ck_id")
+                    cookie_manager.set("tss_user_name", user_match.iloc[0]['real_name'], expires_at=expires_at, key="set_ck_name")
                     
                     login_box.empty()
                     st.rerun()
@@ -207,9 +201,8 @@ with st.sidebar.expander(f"🔔通知 ({unread_count})", expanded=(unread_count 
 st.sidebar.markdown("---")
 if st.sidebar.button("🚪 登出系統", use_container_width=True):
     st.session_state.logged_in, st.session_state.user_id, st.session_state.user_name = False, "", ""
-    if 'cookie_checked' in st.session_state: del st.session_state['cookie_checked']
-    cookie_manager.delete("tss_user_id")
-    cookie_manager.delete("tss_user_name")
+    cookie_manager.delete("tss_user_id", key="del_ck_id")
+    cookie_manager.delete("tss_user_name", key="del_ck_name")
     st.rerun()
 
 st.sidebar.markdown("---")
