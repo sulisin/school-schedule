@@ -72,22 +72,34 @@ def send_notification(target_user, message):
         )
 
 # ========================================================
-# 🍪 Cookie 跨頁面與重整記憶體 (保持登入 30 分鐘)
+# 🍪 修復版 Cookie 免重登控制核心
 # ========================================================
-cookie_manager = stx.CookieManager()
+@st.cache_resource
+def get_cookie_manager():
+    return stx.CookieManager()
+
+cookie_manager = get_cookie_manager()
 
 if 'logged_in' not in st.session_state: st.session_state.logged_in = False
 if 'user_name' not in st.session_state: st.session_state.user_name = ""
 if 'user_id' not in st.session_state: st.session_state.user_id = ""
 
-# 檢查 Cookie 中是否有儲存的登入狀態
-c_user_id = cookie_manager.get(cookie="tss_user_id")
-c_user_name = cookie_manager.get(cookie="tss_user_name")
+# 若 Session 未登入，試圖從 Cookie 復原
+if not st.session_state.logged_in:
+    c_user_id = cookie_manager.get(cookie="tss_user_id")
+    c_user_name = cookie_manager.get(cookie="tss_user_name")
+    
+    # 解決網頁剛初始化時的通訊時間差
+    if c_user_id is None and 'cookie_checked' not in st.session_state:
+        st.session_state.cookie_checked = True
+        time.sleep(0.2)
+        st.rerun()
 
-if c_user_id and c_user_name and not st.session_state.logged_in:
-    st.session_state.logged_in = True
-    st.session_state.user_id = c_user_id
-    st.session_state.user_name = c_user_name
+    if c_user_id and c_user_name:
+        st.session_state.logged_in = True
+        st.session_state.user_id = c_user_id
+        st.session_state.user_name = c_user_name
+        st.rerun()
 
 login_box = st.empty()
 
@@ -199,7 +211,7 @@ with st.sidebar.expander(f"🔔通知 ({unread_count})", expanded=(unread_count 
 st.sidebar.markdown("---")
 if st.sidebar.button("🚪 登出系統", use_container_width=True):
     st.session_state.logged_in, st.session_state.user_id, st.session_state.user_name = False, "", ""
-    # 🍪 清除 Cookie
+    if 'cookie_checked' in st.session_state: del st.session_state['cookie_checked']
     cookie_manager.delete("tss_user_id")
     cookie_manager.delete("tss_user_name")
     st.rerun()
