@@ -7,7 +7,7 @@ import time
 import streamlit.components.v1 as components
 
 # ==========================================
-# 🔑 Supabase 雲端資料庫連線設定
+# 🔑 Supabase 雲端資料庫連線設定 (高效連線池)
 # ==========================================
 DATABASE_URL = "postgresql://postgres.vccvzbtgzkiyvoowxjlq:Tsshs-011329@aws-0-ap-northeast-1.pooler.supabase.com:6543/postgres"
 
@@ -16,11 +16,17 @@ if DATABASE_URL.startswith("postgresql://"):
 
 @st.cache_resource
 def get_db_engine():
-    return create_engine(DATABASE_URL, pool_pre_ping=True)
+    # 使用 pool_size 與 max_overflow 保持常駐連線，避免重複建立連線
+    return create_engine(
+        DATABASE_URL, 
+        pool_size=10, 
+        max_overflow=20, 
+        pool_recycle=300, 
+        pool_pre_ping=True
+    )
 
 engine = get_db_engine()
 
-# 萬用資料庫工具函式
 def run_query(query, params=None):
     """讀取資料 (SELECT)"""
     with engine.connect() as conn:
@@ -32,7 +38,16 @@ def run_action(query, params=None):
         conn.execute(text(query), params or {})
 
 # ========================================================
-# 網頁基本設定與樣式 (包含分頁自動換行)
+# ⚡ 高效快取機制 (速度飛躍的關鍵)
+# ========================================================
+@st.cache_data(ttl=3600)  # 快取 1 小時，全校基本資料不需每次重抓
+def get_static_base_data():
+    classes_df = run_query("SELECT DISTINCT class_name FROM base_schedule WHERE class_name IS NOT NULL")
+    teachers_df = run_query("SELECT DISTINCT teacher_name FROM base_schedule WHERE teacher_name IS NOT NULL")
+    return classes_df['class_name'].tolist(), teachers_df['teacher_name'].tolist()
+
+# ========================================================
+# 網頁基本設定與樣式
 # ========================================================
 st.set_page_config(page_title="辭修中學調代課系統", layout="wide")
 st.markdown("""
@@ -65,11 +80,9 @@ def to_arabic_class(name):
     match = re.search(r'([一二三四五六])年(\d+)班', name)
     return f"{num_map[match.group(1)]}{int(match.group(2)):02d}" if match else name
 
-classes_df = run_query("SELECT DISTINCT class_name FROM base_schedule WHERE class_name IS NOT NULL")
-all_classes = sorted(classes_df['class_name'].tolist(), key=to_arabic_class)
-
-teachers_df = run_query("SELECT DISTINCT teacher_name FROM base_schedule WHERE teacher_name IS NOT NULL")
-all_teachers_in_db = sorted(teachers_df['teacher_name'].tolist())
+raw_classes, raw_teachers = get_static_base_data()
+all_classes = sorted(raw_classes, key=to_arabic_class)
+all_teachers_in_db = sorted(raw_teachers)
 
 if not st.session_state.logged_in:
     st.markdown("### 🔐 歡迎使用，請輸入帳號密碼登入")
@@ -91,7 +104,7 @@ if not st.session_state.logged_in:
                 st.session_state.user_id = input_emp_id.upper()
                 st.session_state.user_name = user_df.iloc[0]['real_name']
                 st.success(f"🎉 歡迎 {user_df.iloc[0]['real_name']} 成功登入系統！")
-                time.sleep(0.5)
+                time.sleep(0.3)
                 st.rerun()
             else: 
                 st.error("❌ 登入失敗：員工編號或密碼錯誤。")
@@ -380,7 +393,7 @@ def confirm_submit_dialog(initiator_name, my_lesson, swap_partner_data, date_1_s
         else:
             send_notification(swap_partner_data['teacher_name'], f"📬 {initiator_name} 老師向您發起了調課邀請 ({date_1_str} 第{my_lesson['period']}節)，請至系統簽核。")
         st.success("✅ 操作成功！全校課表已即時更新。" if is_admin else "🚀 申請已成功送出，等待對方同意！")
-        time.sleep(1)
+        time.sleep(0.5)
         st.rerun()
 
 @st.dialog("審查調課申請單", width="large")
@@ -402,14 +415,14 @@ def review_swap_dialog(group_id, sender_name, cls_name, date_a, per_a, sub_a, da
             run_action("UPDATE temp_swaps SET status = 'pending_admin' WHERE group_id = :gid", {"gid": group_id})
             send_notification(sender_name, f"✅ {st.session_state.user_name} 老師已同意您的調課 ({date_a} 第{per_a}節)，待教務處審核。")
             st.success("已同意！單據已送往教務處等待核准。")
-            time.sleep(1.5)
+            time.sleep(0.5)
             st.rerun()
     with colB:
         if st.button("❌ 婉拒申請", type="secondary", use_container_width=True):
             run_action("UPDATE temp_swaps SET status = 'rejected' WHERE group_id = :gid", {"gid": group_id})
             send_notification(sender_name, f"❌ {st.session_state.user_name} 老師婉拒了您的調課申請 ({date_a} 第{per_a}節)。")
             st.error("已退回此調課申請。")
-            time.sleep(1)
+            time.sleep(0.5)
             st.rerun()
 
 @st.dialog("⚠️ 行政最高權限：強制撤銷確認", width="large")
@@ -422,7 +435,7 @@ def force_cancel_dialog(group_id, info_str, notif_t1, notif_m1, notif_t2, notif_
         if notif_t1: send_notification(notif_t1, notif_m1)
         if notif_t2: send_notification(notif_t2, notif_m2)
         st.success("✅ 撤銷成功！單據已作廢並保留紀錄。")
-        time.sleep(1)
+        time.sleep(0.5)
         st.rerun()
 
 @st.dialog("🖨️ 單筆表單預覽", width="large")
@@ -562,7 +575,7 @@ with tabs[2]:
                                 )
                                 send_notification(sub_teacher, f"⚡ 教務處已指派您於 {date_str} 第 {chosen_abs_les['period']} 節進行代課。")
                                 st.success(f"🎉 成功指派！{sub_teacher} 老師將前往 {to_arabic_class(chosen_abs_les['class_name'])} 班上課。")
-                                time.sleep(1)
+                                time.sleep(0.5)
                                 st.rerun()
             st.stop() 
 
@@ -670,7 +683,7 @@ with tabs[2]:
                                 if st.button("🗑️ 撤回此申請", key=f"cancel_{row['group_id']}", type="secondary"):
                                     run_action("DELETE FROM temp_swaps WHERE group_id = :gid", {"gid": row['group_id']})
                                     st.warning("已成功撤回。")
-                                    time.sleep(1)
+                                    time.sleep(0.5)
                                     st.rerun()
 
         with col2:
@@ -740,12 +753,12 @@ def render_admin_cards(df, is_pending_approval=False):
                         send_notification(row['申請老師'], f"✅ 教務處已核准您與 {row['對調老師']} 老師的調課單 ({row['申請方日期']} 第{row['申請方節次']}節)！")
                         send_notification(row['對調老師'], f"✅ 教務處已核准您與 {row['申請老師']} 老師的調課單 ({row['對調方日期']} 第{row['對調方節次']}節)！")
                         st.success("✅ 已核准！課表即時生效。")
-                        time.sleep(1)
+                        time.sleep(0.5)
                         st.rerun()
                     if st.button("❌ 駁回申請", key=f"rej_{gid}", type="secondary", use_container_width=True):
                         run_action("UPDATE temp_swaps SET status = 'rejected_admin' WHERE group_id = :gid", {"gid": gid})
                         st.error("❌ 已駁回退單。")
-                        time.sleep(1)
+                        time.sleep(0.5)
                         st.rerun()
                 elif raw_status in ('approved', 'approved_sub'):
                     if st.button("🖨️ 列印表單", key=f"prt_{gid}", type="primary", use_container_width=True):
@@ -965,7 +978,7 @@ if st.session_state.user_id == "ADMIN":
                                 run_action("INSERT INTO locked_slots (teacher_name, lock_date, period, reason) VALUES (:t, :d, :p, :r)", {"t": t, "d": lock_d.strftime('%Y-%m-%d'), "p": str(p), "r": lock_r.strip()})
                                 added_count += 1
                     st.success(f"✅ 批次鎖定成功！共新增了 {added_count} 筆鎖定紀錄。")
-                    time.sleep(1)
+                    time.sleep(0.5)
                     st.rerun()
         
         st.markdown("---")
@@ -1015,7 +1028,7 @@ if st.session_state.user_id == "ADMIN":
                                 param_keys = ",".join([f":id{i}" for i in range(len(ids_tuple))])
                                 run_action(f"DELETE FROM locked_slots WHERE id IN ({param_keys})", params)
                                 st.success("✅ 已批次解除鎖定！")
-                                time.sleep(1)
+                                time.sleep(0.5)
                                 st.rerun()
 
             st.markdown("##### 📅 即將到來 / 進行中")
@@ -1046,7 +1059,7 @@ if st.session_state.user_id == "ADMIN":
                     for t in group_members:
                         run_action("INSERT INTO teacher_groups (group_name, teacher_name) VALUES (:g, :t)", {"g": g_name, "t": t})
                     st.success(f"✅ 群組【{g_name}】已成功建立/更新！")
-                    time.sleep(1)
+                    time.sleep(0.5)
                     st.rerun()
 
         st.markdown("---")
@@ -1065,7 +1078,7 @@ if st.session_state.user_id == "ADMIN":
                         if st.button("刪除群組", key=f"del_grp_{row['group_name']}"):
                             run_action("DELETE FROM teacher_groups WHERE group_name=:g", {"g": row['group_name']})
                             st.warning(f"已刪除群組：{row['group_name']}")
-                            time.sleep(1)
+                            time.sleep(0.5)
                             st.rerun()
 
 # ========================================================
@@ -1093,7 +1106,7 @@ if st.session_state.user_id == "ADMIN":
                         run_action("DELETE FROM user_credentials WHERE role != 'admin'")
                         new_df.to_sql('user_credentials', engine, if_exists='append', index=False)
                         st.success("✅ 帳號資料已成功整批更新！請重新整理頁面。")
-                        time.sleep(1.5)
+                        time.sleep(0.5)
                         st.rerun()
                 except Exception as e: st.error(f"上傳發生錯誤：{e}")
 
