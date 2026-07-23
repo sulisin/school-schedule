@@ -84,30 +84,35 @@ raw_classes, raw_teachers = get_static_base_data()
 all_classes = sorted(raw_classes, key=to_arabic_class)
 all_teachers_in_db = sorted(raw_teachers)
 
+# 💡 使用佔位容器，登入成功時可立刻清空表單，消除半透明殘影
+login_box = st.empty()
+
 if not st.session_state.logged_in:
-    st.markdown("### 🔐 歡迎使用，請輸入帳號密碼登入")
-    col_l1, col_l2 = st.columns(2)
-    with col_l1: input_emp_id = st.text_input("👤 請輸入您的員工編號（帳號）：", placeholder="例如: T001 或 ADMIN").strip()
-    with col_l2: input_pwd = st.text_input("🔑 請輸入密碼：", type="password", placeholder="預設密碼為 A123，行政為1234")
-    st.info("💡 **系統正式營運中**：\n- **教務處**：帳號 `ADMIN` / 密碼 `1234`\n- **一般老師**：預設密碼皆為 `A123`（可由教務處統一發布更新）。")
-    
-    if st.button("🔓 驗證登入", type="primary"):
-        if not input_emp_id or not input_pwd: 
-            st.error("❌ 帳號與密碼皆不能為空白！")
-        else:
-            user_df = run_query(
-                "SELECT real_name, password FROM user_credentials WHERE UPPER(emp_id) = :eid",
-                {"eid": input_emp_id.upper()}
-            )
-            if not user_df.empty and str(user_df.iloc[0]['password']) == str(input_pwd):
-                st.session_state.logged_in = True
-                st.session_state.user_id = input_emp_id.upper()
-                st.session_state.user_name = user_df.iloc[0]['real_name']
-                st.success(f"🎉 歡迎 {user_df.iloc[0]['real_name']} 成功登入系統！")
-                time.sleep(0.3)
-                st.rerun()
-            else: 
-                st.error("❌ 登入失敗：員工編號或密碼錯誤。")
+    with login_box.container():
+        st.markdown("### 🔐 歡迎使用，請輸入帳號密碼登入")
+        col_l1, col_l2 = st.columns(2)
+        with col_l1: 
+            input_emp_id = st.text_input("👤 請輸入您的員工編號（帳號）：", placeholder="例如: T001 或 ADMIN").strip()
+        with col_l2: 
+            input_pwd = st.text_input("🔑 請輸入密碼：", type="password", placeholder="請輸入您的密碼")
+        
+        if st.button("🔓 驗證登入", type="primary"):
+            if not input_emp_id or not input_pwd: 
+                st.error("❌ 帳號與密碼皆不能為空白！")
+            else:
+                user_df = run_query(
+                    "SELECT real_name, password FROM user_credentials WHERE UPPER(emp_id) = :eid",
+                    {"eid": input_emp_id.upper()}
+                )
+                if not user_df.empty and str(user_df.iloc[0]['password']) == str(input_pwd):
+                    st.session_state.logged_in = True
+                    st.session_state.user_id = input_emp_id.upper()
+                    st.session_state.user_name = user_df.iloc[0]['real_name']
+                    # 清空登入畫面並立即重繪
+                    login_box.empty()
+                    st.rerun()
+                else: 
+                    st.error("❌ 登入失敗：員工編號或密碼錯誤。")
     st.stop()
 
 # ========================================================
