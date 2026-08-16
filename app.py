@@ -291,7 +291,72 @@ def load_merged_timetable(target_date, filter_value, filter_type="teacher"):
     return timetable
 
 # ========================================================
-# 🖨️ 列印表單核心引擎
+# 🖨️ 課表列印彈窗引擎 (教師課表 & 班級課表)
+# ========================================================
+@st.dialog("🖨️ 課表列印預覽", width="large")
+def print_timetable_dialog(target_date, filter_value, filter_type):
+    timetable_df = load_merged_timetable(target_date, filter_value, filter_type)
+    start_of_week = target_date - datetime.timedelta(days=target_date.weekday())
+    end_of_week = start_of_week + datetime.timedelta(days=4)
+    date_title = f"{start_of_week.strftime('%Y/%m/%d')} ~ {end_of_week.strftime('%Y/%m/%d')}"
+    
+    title_name = f"{filter_value} 老師" if filter_type == "teacher" else f"{to_arabic_class(filter_value)} 班"
+    
+    rows_html = ""
+    for period_name, row in timetable_df.iterrows():
+        rows_html += f"<tr><td style='font-weight:bold; background:#f0f0f0;'>{period_name}</td>"
+        for col in ['一', '二', '三', '四', '五']:
+            cell_val = str(row[col]).replace('\n', '<br>')
+            rows_html += f"<td>{cell_val}</td>"
+        rows_html += "</tr>"
+
+    print_html = f"""
+    <html><head><style>
+    html, body {{ font-family: 'PingFang TC', sans-serif; margin: 0; padding: 10px; background: #fff; }}
+    .header {{ text-align: center; margin-bottom: 15px; }}
+    .title {{ font-size: 22px; font-weight: bold; }}
+    .sub-title {{ font-size: 14px; color: #555; margin-top: 5px; }}
+    table {{ width: 100%; border-collapse: collapse; text-align: center; table-layout: fixed; }}
+    th, td {{ border: 1px solid #000; padding: 8px 4px; font-size: 13px; height: 50px; vertical-align: middle; word-wrap: break-word; }}
+    th {{ background: #f0f0f0; font-size: 14px; }}
+    .fixed-btn {{ text-align: center; padding: 10px; position: fixed; top: 0; left: 0; width: 100%; background: #1e3a8a; z-index: 1000; }}
+    @media print {{
+        .no-print {{ display: none !important; }}
+        body {{ padding: 0; }}
+        @page {{ size: A4 landscape; margin: 10mm; }}
+    }}
+    </style></head>
+    <body>
+        <div class="fixed-btn no-print">
+            <button onclick="window.print()" style="padding: 8px 25px; font-size: 18px; font-weight: bold; cursor: pointer; background: #fff; color: #1e3a8a; border: none; border-radius: 5px;">🖨️ 確認列印 (請設定為 A4 橫印)</button>
+        </div>
+        <div style="margin-top: 60px;">
+            <div class="header">
+                <div class="title">辭修中學 {title_name} 週課表</div>
+                <div class="sub-title">適用週次日期：{date_title}</div>
+            </div>
+            <table>
+                <thead>
+                    <tr>
+                        <th style="width: 10%;">節次</th>
+                        <th style="width: 18%;">星期一</th>
+                        <th style="width: 18%;">星期二</th>
+                        <th style="width: 18%;">星期三</th>
+                        <th style="width: 18%;">星期四</th>
+                        <th style="width: 18%;">星期五</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {rows_html}
+                </tbody>
+            </table>
+        </div>
+    </body></html>
+    """
+    components.html(print_html, height=650, scrolling=True)
+
+# ========================================================
+# 🖨️ 單筆調代課表單列印引擎
 # ========================================================
 def generate_slip_card_html(title_type, name, data):
     date_tds = ""
@@ -513,17 +578,37 @@ if st.session_state.user_id == "ADMIN":
     tabs_list.extend(["🏢 教務處後台", "🖨️ 列印中心", "🔒 鎖定時段設定", "👥 群組管理", "⚙️ 帳號管理", "💰 第八節計費"])
 tabs = st.tabs(tabs_list)
 
-# --- TAB 1 & 2: 課表查閱 ---
+# --- TAB 1: 教師課表 ---
 with tabs[0]:
     try: default_idx = all_teachers_in_db.index(st.session_state.user_name)
     except: default_idx = 0
-    selected_query_teacher = st.selectbox("請選擇要查詢的老師姓名：", all_teachers_in_db, index=default_idx)
+    
+    col_t1, col_t2 = st.columns([4, 1])
+    with col_t1:
+        selected_query_teacher = st.selectbox("請選擇要查詢的老師姓名：", all_teachers_in_db, index=default_idx)
+    with col_t2:
+        st.write("")
+        st.write("")
+        if st.button("🖨️ 列印此課表", key="btn_print_teacher", type="primary", use_container_width=True):
+            if selected_query_teacher:
+                print_timetable_dialog(selected_date, selected_query_teacher, "teacher")
+                
     if selected_query_teacher:
         st.caption(f"📊 {selected_query_teacher} 老師 在 {selected_date} 所在週次的整週課表")
         render_styled_table_html(load_merged_timetable(selected_date, selected_query_teacher, "teacher"))
 
+# --- TAB 2: 班級課表 ---
 with tabs[1]:
-    selected_cls = st.selectbox("請選擇要查詢的班級：", all_classes, format_func=to_arabic_class)
+    col_c1, col_c2 = st.columns([4, 1])
+    with col_c1:
+        selected_cls = st.selectbox("請選擇要查詢的班級：", all_classes, format_func=to_arabic_class)
+    with col_c2:
+        st.write("")
+        st.write("")
+        if st.button("🖨️ 列印此課表", key="btn_print_class", type="primary", use_container_width=True):
+            if selected_cls:
+                print_timetable_dialog(selected_date, selected_cls, "class")
+                
     if selected_cls:
         st.caption(f"📋 {to_arabic_class(selected_cls)} 班 在 {selected_date} 所在週次的整週課表")
         render_styled_table_html(load_merged_timetable(selected_date, selected_cls, "class"))
@@ -782,10 +867,10 @@ if st.session_state.user_id == "ADMIN":
     with tabs[3]:
         st.markdown("### 🏢 教務處行政全知管理後台")
         
-        # 📢 1. 教務處修改全校公告功能
+        # 📢 教務處修改全校公告功能
         with st.expander("📌 設定 / 發布全校公告訊息", expanded=True):
             current_ann = get_announcement()
-            new_ann_input = st.text_area("請輸入要發布的全校公告內容（留空保存則隱藏公告）：", value=current_ann, height=100, placeholder="例如：請各位老師於每週五前完成下週調課申請。")
+            new_ann_input = st.text_area("請輸入要發布的全校公告內容（留空儲存則隱藏公告）：", value=current_ann, height=100, placeholder="例如：請各位老師於每週五前完成下週調課申請。")
             if st.button("📢 儲存並發布全校公告", type="primary"):
                 run_action("""
                     INSERT INTO announcements (id, content, updated_at) 
