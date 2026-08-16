@@ -45,6 +45,16 @@ def get_base_schedule_cached():
 def get_user_credentials_cached():
     return run_query("SELECT emp_id, password, real_name, role FROM user_credentials")
 
+def get_announcement():
+    """讀取最新全校公告"""
+    try:
+        df = run_query("SELECT content FROM announcements WHERE id = 1")
+        if not df.empty:
+            return df.iloc[0]['content']
+    except:
+        pass
+    return ""
+
 base_schedule_df = get_base_schedule_cached()
 all_classes = sorted(list(set(base_schedule_df['class_name'].dropna().tolist())), key=to_arabic_class)
 all_teachers_in_db = sorted(list(set(base_schedule_df['teacher_name'].dropna().tolist())))
@@ -59,7 +69,19 @@ st.markdown("""
     .stTabs [data-baseweb="tab-list"] button [data-testid="stMarkdownContainer"] p { font-size: 16px; font-weight: bold; }
     </style>
 """, unsafe_allow_html=True)
+
+# 標題
 st.subheader("🏫 辭修中學調代課系統")
+
+# 📢 醒目的全校公告框（顯示於標題下方）
+announcement_content = get_announcement()
+if announcement_content and announcement_content.strip():
+    st.markdown(f"""
+    <div style="background-color: #fff3cd; color: #856404; border: 2px solid #ffeeba; border-left: 8px solid #ffc107; padding: 14px 18px; border-radius: 8px; margin-bottom: 20px; font-size: 16px; line-height: 1.6; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
+        <span style="font-size: 18px; font-weight: bold; color: #856404;">📢 教務處全校公告：</span><br>
+        <span style="white-space: pre-wrap;">{announcement_content}</span>
+    </div>
+    """, unsafe_allow_html=True)
 
 REAL_TODAY_STR = datetime.date.today().strftime('%Y-%m-%d')
 
@@ -88,7 +110,7 @@ if not st.session_state.logged_in:
             st.session_state.user_id = url_user_id.upper()
             st.session_state.user_name = user_match.iloc[0]['real_name']
 
-# 若未登入，只渲染登入頁面並徹底停止後續執行 (消滅所有殘影)
+# 若未登入，只渲染登入頁面並徹底停止後續執行
 if not st.session_state.logged_in:
     st.markdown("### 🔐 歡迎使用，請輸入帳號密碼登入")
     col_l1, col_l2 = st.columns(2)
@@ -107,13 +129,11 @@ if not st.session_state.logged_in:
                 st.session_state.logged_in = True
                 st.session_state.user_id = input_emp_id.upper()
                 st.session_state.user_name = user_match.iloc[0]['real_name']
-                
-                # 寫入網址參數，確保 F5 重整免重新登入
                 st.query_params["u"] = input_emp_id.upper()
                 st.rerun()
             else: 
                 st.error("❌ 登入失敗：員工編號或密碼錯誤。")
-    st.stop()  # 強制中斷，確保絕不會跟主系統畫面疊加
+    st.stop()
 
 # ========================================================
 # 📅 核心邏輯區
@@ -192,7 +212,7 @@ with st.sidebar.expander(f"🔔通知 ({unread_count})", expanded=(unread_count 
 st.sidebar.markdown("---")
 if st.sidebar.button("🚪 登出系統", use_container_width=True):
     st.session_state.logged_in, st.session_state.user_id, st.session_state.user_name = False, "", ""
-    st.query_params.clear()  # 清空網址憑證
+    st.query_params.clear()
     st.rerun()
 
 st.sidebar.markdown("---")
@@ -761,6 +781,22 @@ def render_admin_cards(df, is_pending_approval=False):
 if st.session_state.user_id == "ADMIN":
     with tabs[3]:
         st.markdown("### 🏢 教務處行政全知管理後台")
+        
+        # 📢 1. 教務處修改全校公告功能
+        with st.expander("📌 設定 / 發布全校公告訊息", expanded=True):
+            current_ann = get_announcement()
+            new_ann_input = st.text_area("請輸入要發布的全校公告內容（留空保存則隱藏公告）：", value=current_ann, height=100, placeholder="例如：請各位老師於每週五前完成下週調課申請。")
+            if st.button("📢 儲存並發布全校公告", type="primary"):
+                run_action("""
+                    INSERT INTO announcements (id, content, updated_at) 
+                    VALUES (1, :c, CURRENT_TIMESTAMP)
+                    ON CONFLICT (id) DO UPDATE SET content = EXCLUDED.content, updated_at = CURRENT_TIMESTAMP
+                """, {"c": new_ann_input.strip()})
+                st.success("✅ 公告訊息已成功更新發布！全校老師皆可於頁面頂端看見。")
+                time.sleep(0.5)
+                st.rerun()
+
+        st.markdown("---")
         st.caption("此處列出全校所有的調代課紀錄。所有雙方同意的調課單，皆需在此「待審核專區」由教務處點選核准後，方可正式寫入課表生效。")
         search_kw = st.text_input("🔍 輸入關鍵字快速過濾（例如輸入：老師姓名、或班級數字 102）：").strip()
         
