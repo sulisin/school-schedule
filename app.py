@@ -291,7 +291,7 @@ def load_merged_timetable(target_date, filter_value, filter_type="teacher"):
     return timetable
 
 # ========================================================
-# 🖨️ 課表列印彈窗引擎 (教師課表 & 班級課表)
+# 🖨️ 課表直式列印彈窗引擎 (教師課表 & 班級課表)
 # ========================================================
 @st.dialog("🖨️ 課表列印預覽", width="large")
 def print_timetable_dialog(target_date, filter_value, filter_type):
@@ -313,37 +313,37 @@ def print_timetable_dialog(target_date, filter_value, filter_type):
     print_html = f"""
     <html><head><style>
     html, body {{ font-family: 'PingFang TC', sans-serif; margin: 0; padding: 10px; background: #fff; }}
-    .header {{ text-align: center; margin-bottom: 15px; }}
-    .title {{ font-size: 22px; font-weight: bold; }}
-    .sub-title {{ font-size: 14px; color: #555; margin-top: 5px; }}
+    .header {{ text-align: center; margin-bottom: 12px; border-bottom: 2px solid #000; padding-bottom: 8px; }}
+    .title {{ font-size: 20px; font-weight: bold; }}
+    .sub-title {{ font-size: 13px; color: #333; margin-top: 4px; }}
     table {{ width: 100%; border-collapse: collapse; text-align: center; table-layout: fixed; }}
-    th, td {{ border: 1px solid #000; padding: 8px 4px; font-size: 13px; height: 50px; vertical-align: middle; word-wrap: break-word; }}
-    th {{ background: #f0f0f0; font-size: 14px; }}
+    th, td {{ border: 1px solid #000; padding: 6px 2px; font-size: 13px; height: 55px; vertical-align: middle; word-wrap: break-word; }}
+    th {{ background: #f0f0f0; font-size: 14px; font-weight: bold; height: 28px; }}
     .fixed-btn {{ text-align: center; padding: 10px; position: fixed; top: 0; left: 0; width: 100%; background: #1e3a8a; z-index: 1000; }}
     @media print {{
         .no-print {{ display: none !important; }}
         body {{ padding: 0; }}
-        @page {{ size: A4 landscape; margin: 10mm; }}
+        @page {{ size: A4 portrait; margin: 12mm; }}
     }}
     </style></head>
     <body>
         <div class="fixed-btn no-print">
-            <button onclick="window.print()" style="padding: 8px 25px; font-size: 18px; font-weight: bold; cursor: pointer; background: #fff; color: #1e3a8a; border: none; border-radius: 5px;">🖨️ 確認列印 (請設定為 A4 橫印)</button>
+            <button onclick="window.print()" style="padding: 8px 25px; font-size: 18px; font-weight: bold; cursor: pointer; background: #fff; color: #1e3a8a; border: none; border-radius: 5px;">🖨️ 確認列印 (請設定為 A4 直印)</button>
         </div>
-        <div style="margin-top: 60px;">
+        <div style="margin-top: 55px;">
             <div class="header">
                 <div class="title">辭修中學 {title_name} 週課表</div>
-                <div class="sub-title">適用週次日期：{date_title}</div>
+                <div class="sub-title">週次區間：{date_title}</div>
             </div>
             <table>
                 <thead>
                     <tr>
-                        <th style="width: 10%;">節次</th>
-                        <th style="width: 18%;">星期一</th>
-                        <th style="width: 18%;">星期二</th>
-                        <th style="width: 18%;">星期三</th>
-                        <th style="width: 18%;">星期四</th>
-                        <th style="width: 18%;">星期五</th>
+                        <th style="width: 12%;">節次</th>
+                        <th style="width: 17.6%;">一</th>
+                        <th style="width: 17.6%;">二</th>
+                        <th style="width: 17.6%;">三</th>
+                        <th style="width: 17.6%;">四</th>
+                        <th style="width: 17.6%;">五</th>
                     </tr>
                 </thead>
                 <tbody>
