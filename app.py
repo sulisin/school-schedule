@@ -291,7 +291,7 @@ def load_merged_timetable(target_date, filter_value, filter_type="teacher"):
     return timetable
 
 # ========================================================
-# 🖨️ 課表直式滿版列印彈窗引擎 (專為一頁 4 縮印設計)
+# 🖨️ 課表直式滿版列印彈窗引擎 (大字體 + 粗外框 + 4/5節加粗分隔線)
 # ========================================================
 @st.dialog("🖨️ 課表列印預覽", width="large")
 def print_timetable_dialog(target_date, filter_value, filter_type):
@@ -304,7 +304,9 @@ def print_timetable_dialog(target_date, filter_value, filter_type):
     
     rows_html = ""
     for period_name, row in timetable_df.iterrows():
-        rows_html += f"<tr><td class='p-col'>{period_name}</td>"
+        # 💡 第 4 節底邊加上 4px 粗邊框（區隔上下午）
+        tr_class = "p4-row" if "4" in period_name else ""
+        rows_html += f"<tr class='{tr_class}'><td class='p-col'>{period_name}</td>"
         for col in ['一', '二', '三', '四', '五']:
             cell_val = str(row[col]).replace('\n', '<br>')
             rows_html += f"<td>{cell_val}</td>"
@@ -315,31 +317,46 @@ def print_timetable_dialog(target_date, filter_value, filter_type):
     * {{ box-sizing: border-box; }}
     html, body {{ font-family: 'PingFang TC', sans-serif; margin: 0; padding: 0; background: #fff; width: 100%; height: 100%; }}
     
-    /* 螢幕預覽容器 */
     .printable-card {{
         width: 100%;
         height: 98vh;
         display: flex;
         flex-direction: column;
-        padding: 15px;
+        padding: 10px;
         box-sizing: border-box;
     }}
     
-    .header {{ text-align: center; margin-bottom: 10px; border-bottom: 2px solid #000; padding-bottom: 6px; flex-shrink: 0; }}
-    .title {{ font-size: 22px; font-weight: bold; line-height: 1.2; }}
-    .sub-title {{ font-size: 13px; color: #333; margin-top: 4px; }}
+    .header {{ text-align: center; margin-bottom: 12px; border-bottom: 2.5px solid #000; padding-bottom: 8px; flex-shrink: 0; }}
+    .title {{ font-size: 26px; font-weight: bold; line-height: 1.2; }}
+    .sub-title {{ font-size: 15px; color: #222; margin-top: 6px; font-weight: 500; }}
     
-    /* 垂直拉伸平分高度的表格 */
+    /* 表格本體與內部細線 */
     table {{ 
         width: 100%; 
         flex-grow: 1; 
         border-collapse: collapse; 
         text-align: center; 
         table-layout: fixed; 
+        border: 2.5px solid #000; /* 統一最外框粗線 */
     }}
-    th, td {{ border: 1.5px solid #000; padding: 2px; font-size: 13px; vertical-align: middle; word-wrap: break-word; }}
-    th {{ background: #f0f0f0; font-size: 15px; font-weight: bold; height: 35px; flex-shrink: 0; }}
-    .p-col {{ font-weight: bold; background: #f9f9f9; font-size: 13px; width: 12%; }}
+    
+    th, td {{ 
+        border: 1.5px solid #000; 
+        padding: 4px; 
+        font-size: 16px; /* 💡 字體放大至 16px */
+        font-weight: 500;
+        vertical-align: middle; 
+        word-wrap: break-word; 
+        line-height: 1.3;
+    }}
+    
+    th {{ background: #f0f0f0; font-size: 18px; font-weight: bold; height: 40px; flex-shrink: 0; }}
+    .p-col {{ font-weight: bold; background: #f9f9f9; font-size: 16px; width: 12%; }}
+    
+    /* 💡 第 4 節與第 5 節中間加粗橫線 (午休分隔) */
+    .p4-row td {{
+        border-bottom: 4px solid #000 !important;
+    }}
     
     .fixed-btn {{ text-align: center; padding: 10px; position: fixed; top: 0; left: 0; width: 100%; background: #1e3a8a; z-index: 1000; }}
     
@@ -380,7 +397,7 @@ def print_timetable_dialog(target_date, filter_value, filter_type):
         </div>
     </body></html>
     """
-    components.html(print_html, height=650, scrolling=True)
+    components.html(print_html, height=680, scrolling=True)
 
 # ========================================================
 # 🖨️ 單筆調代課表單列印引擎
