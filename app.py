@@ -291,7 +291,7 @@ def load_merged_timetable(target_date, filter_value, filter_type="teacher"):
     return timetable
 
 # ========================================================
-# 🖨️ 課表直式列印彈窗引擎 (教師課表 & 班級課表)
+# 🖨️ 課表直式滿版列印彈窗引擎 (專為一頁 4 縮印設計)
 # ========================================================
 @st.dialog("🖨️ 課表列印預覽", width="large")
 def print_timetable_dialog(target_date, filter_value, filter_type):
@@ -304,7 +304,7 @@ def print_timetable_dialog(target_date, filter_value, filter_type):
     
     rows_html = ""
     for period_name, row in timetable_df.iterrows():
-        rows_html += f"<tr><td style='font-weight:bold; background:#f0f0f0;'>{period_name}</td>"
+        rows_html += f"<tr><td class='p-col'>{period_name}</td>"
         for col in ['一', '二', '三', '四', '五']:
             cell_val = str(row[col]).replace('\n', '<br>')
             rows_html += f"<td>{cell_val}</td>"
@@ -312,44 +312,71 @@ def print_timetable_dialog(target_date, filter_value, filter_type):
 
     print_html = f"""
     <html><head><style>
-    html, body {{ font-family: 'PingFang TC', sans-serif; margin: 0; padding: 10px; background: #fff; }}
-    .header {{ text-align: center; margin-bottom: 12px; border-bottom: 2px solid #000; padding-bottom: 8px; }}
-    .title {{ font-size: 20px; font-weight: bold; }}
+    * {{ box-sizing: border-box; }}
+    html, body {{ font-family: 'PingFang TC', sans-serif; margin: 0; padding: 0; background: #fff; width: 100%; height: 100%; }}
+    
+    /* 螢幕預覽容器 */
+    .printable-card {{
+        width: 100%;
+        height: 98vh;
+        display: flex;
+        flex-direction: column;
+        padding: 15px;
+        box-sizing: border-box;
+    }}
+    
+    .header {{ text-align: center; margin-bottom: 10px; border-bottom: 2px solid #000; padding-bottom: 6px; flex-shrink: 0; }}
+    .title {{ font-size: 22px; font-weight: bold; line-height: 1.2; }}
     .sub-title {{ font-size: 13px; color: #333; margin-top: 4px; }}
-    table {{ width: 100%; border-collapse: collapse; text-align: center; table-layout: fixed; }}
-    th, td {{ border: 1px solid #000; padding: 6px 2px; font-size: 13px; height: 55px; vertical-align: middle; word-wrap: break-word; }}
-    th {{ background: #f0f0f0; font-size: 14px; font-weight: bold; height: 28px; }}
+    
+    /* 垂直拉伸平分高度的表格 */
+    table {{ 
+        width: 100%; 
+        flex-grow: 1; 
+        border-collapse: collapse; 
+        text-align: center; 
+        table-layout: fixed; 
+    }}
+    th, td {{ border: 1.5px solid #000; padding: 2px; font-size: 13px; vertical-align: middle; word-wrap: break-word; }}
+    th {{ background: #f0f0f0; font-size: 15px; font-weight: bold; height: 35px; flex-shrink: 0; }}
+    .p-col {{ font-weight: bold; background: #f9f9f9; font-size: 13px; width: 12%; }}
+    
     .fixed-btn {{ text-align: center; padding: 10px; position: fixed; top: 0; left: 0; width: 100%; background: #1e3a8a; z-index: 1000; }}
+    
     @media print {{
         .no-print {{ display: none !important; }}
-        body {{ padding: 0; }}
-        @page {{ size: A4 portrait; margin: 12mm; }}
+        @page {{ size: A4 portrait; margin: 8mm; }}
+        html, body {{ width: 100%; height: 100%; }}
+        .printable-card {{ height: 100vh; padding: 0; margin: 0; }}
+        .margin-top-box {{ margin-top: 0 !important; }}
     }}
     </style></head>
     <body>
         <div class="fixed-btn no-print">
             <button onclick="window.print()" style="padding: 8px 25px; font-size: 18px; font-weight: bold; cursor: pointer; background: #fff; color: #1e3a8a; border: none; border-radius: 5px;">🖨️ 確認列印 (請設定為 A4 直印)</button>
         </div>
-        <div style="margin-top: 55px;">
-            <div class="header">
-                <div class="title">辭修中學 {title_name} 週課表</div>
-                <div class="sub-title">週次區間：{date_title}</div>
+        <div class="margin-top-box" style="margin-top: 55px; height: calc(100% - 55px);">
+            <div class="printable-card">
+                <div class="header">
+                    <div class="title">辭修中學 {title_name} 週課表</div>
+                    <div class="sub-title">週次區間：{date_title}</div>
+                </div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th style="width: 12%;">節次</th>
+                            <th style="width: 17.6%;">一</th>
+                            <th style="width: 17.6%;">二</th>
+                            <th style="width: 17.6%;">三</th>
+                            <th style="width: 17.6%;">四</th>
+                            <th style="width: 17.6%;">五</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {rows_html}
+                    </tbody>
+                </table>
             </div>
-            <table>
-                <thead>
-                    <tr>
-                        <th style="width: 12%;">節次</th>
-                        <th style="width: 17.6%;">一</th>
-                        <th style="width: 17.6%;">二</th>
-                        <th style="width: 17.6%;">三</th>
-                        <th style="width: 17.6%;">四</th>
-                        <th style="width: 17.6%;">五</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {rows_html}
-                </tbody>
-            </table>
         </div>
     </body></html>
     """
