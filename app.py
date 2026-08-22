@@ -93,7 +93,7 @@ def send_notification(target_user, message):
         )
 
 # ========================================================
-# 🔑 原生網址記憶登入系統 (免套件、重整免重登、無殘影)
+# 🔑 原生網址記憶登入系統
 # ========================================================
 if 'logged_in' not in st.session_state: st.session_state.logged_in = False
 if 'user_name' not in st.session_state: st.session_state.user_name = ""
@@ -134,6 +134,34 @@ if not st.session_state.logged_in:
             else: 
                 st.error("❌ 登入失敗：員工編號或密碼錯誤。")
     st.stop()
+
+# ========================================================
+# 🔑 修改個人密碼彈窗引擎
+# ========================================================
+@st.dialog("🔑 修改個人登入密碼", width="small")
+def change_password_dialog():
+    st.caption(f"帳號：**{st.session_state.user_id}**（{st.session_state.user_name} 老師）")
+    old_pwd = st.text_input("請輸入「目前舊密碼」：", type="password")
+    new_pwd = st.text_input("請輸入「新密碼」：", type="password")
+    confirm_pwd = st.text_input("請再次輸入「新密碼」確認：", type="password")
+    
+    if st.button("💾 確定更新密碼", type="primary", use_container_width=True):
+        if not old_pwd or not new_pwd or not confirm_pwd:
+            st.error("❌ 所有欄位皆不能為空白！")
+        elif new_pwd != confirm_pwd:
+            st.error("❌ 兩次輸入的新密碼不一致，請重新檢查。")
+        else:
+            # 檢查舊密碼是否正確
+            users_df = get_user_credentials_cached()
+            user_match = users_df[users_df['emp_id'].str.upper() == st.session_state.user_id.upper()]
+            if user_match.empty or str(user_match.iloc[0]['password']) != str(old_pwd):
+                st.error("❌ 目前舊密碼輸入錯誤！")
+            else:
+                run_action("UPDATE user_credentials SET password = :p WHERE UPPER(emp_id) = :e", {"p": new_pwd, "e": st.session_state.user_id.upper()})
+                st.cache_data.clear()  # 清除快取以同步最新密碼
+                st.success("🎉 密碼已成功修改！下次登入請使用新密碼。")
+                time.sleep(1)
+                st.rerun()
 
 # ========================================================
 # 📅 核心邏輯區
@@ -186,6 +214,10 @@ def get_consecutive_block(teacher_name, date_val, new_period_str):
 # ========================================================
 st.sidebar.markdown(f"👤 **目前登入：{st.session_state.user_name}**")
 st.sidebar.markdown(f"🪪 **員工編號：{st.session_state.user_id}**")
+
+# 🔑 側邊欄修改密碼按鈕
+if st.sidebar.button("🔑 修改個人密碼", use_container_width=True):
+    change_password_dialog()
 
 if st.session_state.user_id == "ADMIN":
     unread_df = run_query("SELECT COUNT(DISTINCT group_id) as cnt FROM temp_swaps WHERE status = 'pending_admin'")
@@ -304,7 +336,6 @@ def print_timetable_dialog(target_date, filter_value, filter_type):
     
     rows_html = ""
     for period_name, row in timetable_df.iterrows():
-        # 💡 第 4 節底邊加上 4px 粗邊框（區隔上下午）
         tr_class = "p4-row" if "4" in period_name else ""
         rows_html += f"<tr class='{tr_class}'><td class='p-col'>{period_name}</td>"
         for col in ['一', '二', '三', '四', '五']:
@@ -330,20 +361,19 @@ def print_timetable_dialog(target_date, filter_value, filter_type):
     .title {{ font-size: 26px; font-weight: bold; line-height: 1.2; }}
     .sub-title {{ font-size: 15px; color: #222; margin-top: 6px; font-weight: 500; }}
     
-    /* 表格本體與內部細線 */
     table {{ 
         width: 100%; 
         flex-grow: 1; 
         border-collapse: collapse; 
         text-align: center; 
         table-layout: fixed; 
-        border: 2.5px solid #000; /* 統一最外框粗線 */
+        border: 2.5px solid #000; 
     }}
     
     th, td {{ 
         border: 1.5px solid #000; 
         padding: 4px; 
-        font-size: 16px; /* 💡 字體放大至 16px */
+        font-size: 16px; 
         font-weight: 500;
         vertical-align: middle; 
         word-wrap: break-word; 
@@ -353,7 +383,6 @@ def print_timetable_dialog(target_date, filter_value, filter_type):
     th {{ background: #f0f0f0; font-size: 18px; font-weight: bold; height: 40px; flex-shrink: 0; }}
     .p-col {{ font-weight: bold; background: #f9f9f9; font-size: 16px; width: 12%; }}
     
-    /* 💡 第 4 節與第 5 節中間加粗橫線 (午休分隔) */
     .p4-row td {{
         border-bottom: 4px solid #000 !important;
     }}
